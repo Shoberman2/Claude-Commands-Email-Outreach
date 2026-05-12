@@ -1,32 +1,47 @@
 # Claude Commands: Email Outreach
 
-Three Claude Code slash commands for personalized email outreach via macOS Mail.app. No SMTP credentials, no third-party APIs — everything routes through your existing Mail.app account.
+Three Claude Code slash commands for personalized email outreach. Sends route through your existing mail client — **Mail.app on macOS** or **Outlook desktop on Windows** — so no SMTP credentials and no third-party APIs are involved.
 
 | Command | What it does |
 |---|---|
 | `/find-emails <target description>` | WebSearch + WebFetch to find real personal email addresses for people matching your target. Appends to `~/email-outreach/prospects.json`. |
-| `/email-all [pitch override]` | Drafts a personalized email for each prospect with `status: "new"`, shows them all for approval, sends the approved ones via Mail.app. Caps at 5 sends/run, 60s gap, one per domain. |
+| `/email-all [pitch override]` | Drafts a personalized email for each prospect with `status: "new"`, shows them all for approval, sends the approved ones via Mail.app (macOS) or Outlook (Windows). Caps at 5 sends/run, 60s gap, one per domain. |
 | `/email-todo [args]` | Manage `~/email-outreach/TODO.md`. List, add, mark done, remove. |
 
 ## Requirements
 
-- **macOS** (the helper script drives Mail.app via AppleScript)
-- **Mail.app configured** with at least one sending account
-- **[Claude Code](https://claude.com/claude-code)** installed (`claude` on your PATH)
+One of these platform combos:
+
+- **macOS** + **Mail.app** with at least one sending account configured (helper uses AppleScript)
+- **Windows** + **Outlook desktop** with at least one sending account configured (helper uses COM)
+
+Plus **[Claude Code](https://claude.com/claude-code)** installed (`claude` on your PATH).
+
+Linux isn't supported yet — the helpers drive Mail.app and Outlook specifically. To add Linux you'd need a third helper that drives Thunderbird or sends via SMTP directly.
 
 ## Install
 
+Clone the repo, then run the installer for your OS.
+
+**macOS:**
 ```bash
 git clone https://github.com/Shoberman2/Claude-Commands-Email-Outreach.git
 cd Claude-Commands-Email-Outreach
 ./install.sh
 ```
 
-The installer:
-- Copies the three command files to `~/.claude/commands/`
-- Creates `~/email-outreach/` with `send.sh` and empty data files
-- Prompts for your sending email and writes it to `~/email-outreach/sender.txt`
-- Verifies Mail.app has that account configured
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/Shoberman2/Claude-Commands-Email-Outreach.git
+cd Claude-Commands-Email-Outreach
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Both installers:
+- Copy the three command files to `~/.claude/commands/`
+- Create `~/email-outreach/` with the OS-appropriate helper (`send.sh` on macOS, `send.ps1` on Windows) and empty data files
+- Prompt for your sending email and write it to `~/email-outreach/sender.txt`
+- Verify the local mail client (Mail.app or Outlook) has that account configured
 
 Re-running the installer is safe — your prospects, sent log, and TODO list are preserved.
 
@@ -39,22 +54,24 @@ You type /email-all in Claude Code
 Claude reads ~/email-outreach/prospects.json, drafts emails, shows them
         |   you approve which ones to send
         v
-Claude calls ~/email-outreach/send.sh "<to>" "<subject>" "<body-file>"
+Claude picks the helper based on your OS:
+  macOS    -> ~/email-outreach/send.sh   (bash + osascript + AppleScript)
+  Windows  -> ~/email-outreach/send.ps1  (PowerShell + COM)
         |
         v
-send.sh runs osascript with an AppleScript snippet
+Helper composes a new outgoing message in the local mail client:
+  macOS    -> Mail.app
+  Windows  -> Outlook desktop
         |
         v
-AppleScript tells Mail.app to compose a new outgoing message
+The mail client routes through the account matching sender.txt,
+using its existing SMTP/OAuth connection.
         |
-        v
-Mail.app routes through the account matching sender.txt
-        |   (using its existing SMTP/OAuth connection)
         v
 Recipient's inbox
 ```
 
-**Claude never sees your email password.** Authentication lives entirely inside Mail.app. The tool just hands Mail.app a pre-written message and asks it to send.
+**Claude never sees your email password.** Authentication lives entirely inside Mail.app or Outlook. The tool just hands the mail client a pre-written message and asks it to send.
 
 ## Cold-email warning
 
@@ -78,7 +95,7 @@ Everything stays local. No data leaves your machine via this tool. Web searches 
 | `~/email-outreach/sent.json` | Append-only send log |
 | `~/email-outreach/pitch.md` | Your pitch text, reused across runs |
 | `~/email-outreach/signature.md` | Your sign-off line |
-| `~/email-outreach/sender.txt` | The email address Mail.app sends from |
+| `~/email-outreach/sender.txt` | The email address Mail.app (macOS) or Outlook (Windows) sends from |
 | `~/email-outreach/TODO.md` | Follow-up checklist managed by `/email-todo` |
 
 ## Customizing

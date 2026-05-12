@@ -5,10 +5,23 @@
 
 set -euo pipefail
 
-if [[ "$(uname)" != "Darwin" ]]; then
-  echo "error: macOS only (this tool drives Mail.app via AppleScript)" >&2
-  exit 1
-fi
+case "$(uname -s 2>/dev/null)" in
+  Darwin) ;;  # supported, proceed below
+  MINGW*|MSYS*|CYGWIN*)
+    echo "error: this is the macOS installer. On Windows, run install.ps1 from PowerShell:" >&2
+    echo "  powershell -ExecutionPolicy Bypass -File install.ps1" >&2
+    exit 1
+    ;;
+  Linux)
+    echo "error: Linux is not currently supported (no helper drives a Linux mail client yet)." >&2
+    echo "  See README for what would be needed to add Thunderbird or SMTP support." >&2
+    exit 1
+    ;;
+  *)
+    echo "error: unsupported OS: $(uname -s 2>/dev/null)" >&2
+    exit 1
+    ;;
+esac
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 CMD_DIR="$HOME/.claude/commands"

@@ -1,6 +1,6 @@
 # Email All
 
-Draft and send personalized outreach emails via macOS Mail.app to every prospect with `status: "new"` in `~/email-outreach/prospects.json`.
+Draft and send personalized outreach emails via macOS Mail.app or Windows Outlook desktop to every prospect with `status: "new"` in `~/email-outreach/prospects.json`. The command auto-detects the OS and uses the right helper.
 
 ## Argument
 
@@ -19,7 +19,7 @@ Pitch override (optional): $ARGUMENTS
 
 3. Also ask once per run (only if not already in `~/email-outreach/signature.md`): "How should I sign these? (e.g., 'Alex', '— Alex, alex@example.com')". Save to `~/email-outreach/signature.md` for reuse.
 
-4. Read `~/email-outreach/sender.txt` (single line: the email address Mail.app will send from). If missing or empty, stop and tell the user to write their sending address there. Surface this address to the user in the approval gate — it determines which inbox replies land in and which sender identity recipients see.
+4. Read `~/email-outreach/sender.txt` (single line: the email address the local mail client will send from). If missing or empty, stop and tell the user to write their sending address there. Surface this address to the user in the approval gate — it determines which inbox replies land in and which sender identity recipients see.
 
 ## Drafting
 
@@ -56,14 +56,25 @@ Do not send anything until the user explicitly approves. If they say "cancel", s
 
 ## Sending
 
+**OS dispatch (do this once before the loop).** Detect the user's platform from the environment:
+
+- **macOS** (`darwin`) → use `~/email-outreach/send.sh` (drives Mail.app via AppleScript).
+- **Windows** (`win32`) → use `$HOME\email-outreach\send.ps1` (drives Outlook desktop via COM), invoked as:
+  ```
+  powershell -ExecutionPolicy Bypass -File "$HOME\email-outreach\send.ps1" -To "<email>" -Subject "<subject>" -BodyFile "<temp-body-file>"
+  ```
+- **Linux** → not supported by these helpers. Stop and tell the user this command works on macOS and Windows only.
+
+Both helpers accept the same logical args (`<to>`, `<subject>`, `<body-file-path>`), both read the sender from `sender.txt`, and both exit non-zero on failure.
+
 For each approved draft:
 
-1. Write the body to a temp file: `mktemp /tmp/email-XXXXXX.txt`, write the body there.
-2. Call the helper: `~/email-outreach/send.sh "<email>" "<subject>" "<temp-body-file>"`. The helper drives Mail.app via AppleScript and handles encoding.
+1. Write the body to a temp file as UTF-8. macOS/Linux: `mktemp /tmp/email-XXXXXX.txt`. Windows: a path under `$env:TEMP`, e.g., `Join-Path $env:TEMP "email-$(New-Guid).txt"`.
+2. Call the OS-appropriate helper with the recipient email, subject, and body-file path.
 3. If the helper exits non-zero, STOP the batch. Report which prospect failed and why. Do not continue.
 4. On success, update that prospect's entry in `prospects.json`: set `status` to `"sent"` and add `sent_at` (ISO 8601).
 5. Append a record to `~/email-outreach/sent.json` with `{name, email, subject, body, sent_at}`.
-6. `sleep 60` between sends. Human pacing, not script pacing — this is the single biggest signal Gmail uses to distinguish you from a sequencer tool.
+6. Sleep 60 seconds between sends (`sleep 60` on Unix, `Start-Sleep -Seconds 60` on Windows). Human pacing, not script pacing — the single biggest signal classifiers use to distinguish you from a sequencer tool.
 7. Clean up the temp file.
 
 ## Cap
@@ -95,5 +106,5 @@ Never auto-generate follow-up TODOs — only add what the user explicitly types.
 - NEVER send without explicit user approval of the drafts in this run. A previous run's approval doesn't count.
 - NEVER edit the prospect's `email` field — if it looks wrong, ask the user.
 - NEVER send to anyone whose `status` isn't `"new"`. Already-sent prospects stay out unless the user explicitly says to re-send.
-- If `send.sh` is missing or not executable, stop and tell the user — do not try to inline the AppleScript yourself.
-- If the user's Mail.app is not configured / no account, the AppleScript will fail. Surface the error verbatim.
+- If the OS-appropriate helper (`send.sh` on macOS, `send.ps1` on Windows) is missing or unrunnable, stop and tell the user — do not try to inline AppleScript or COM code yourself.
+- If Mail.app (macOS) or Outlook desktop (Windows) is not configured with the sender account, the helper will fail. Surface the error verbatim.
