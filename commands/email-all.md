@@ -17,7 +17,7 @@ Pitch override (optional): $ARGUMENTS
    - Else if `~/email-outreach/pitch.md` exists and is non-empty, read it.
    - Else ask the user: "What are you pitching? 1-2 sentences on what you're building, who it's for, and the ask. I'll save this for next time." Save the response to `~/email-outreach/pitch.md`.
 
-3. Also ask once per run (only if not already in `~/email-outreach/signature.md`): "How should I sign these? (e.g., 'Steven', '— Steven, ancientbest@gmail.com')". Save to `~/email-outreach/signature.md` for reuse.
+3. Also ask once per run (only if not already in `~/email-outreach/signature.md`): "How should I sign these? (e.g., 'Alex', '— Alex, alex@example.com')". Save to `~/email-outreach/signature.md` for reuse.
 
 4. Read `~/email-outreach/sender.txt` (single line: the email address Mail.app will send from). If missing or empty, stop and tell the user to write their sending address there. Surface this address to the user in the approval gate — it determines which inbox replies land in and which sender identity recipients see.
 
