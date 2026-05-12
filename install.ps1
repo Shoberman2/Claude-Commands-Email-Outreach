@@ -26,6 +26,41 @@ foreach ($f in "find-emails.md", "email-all.md", "email-auto.md", "email-todo.md
     Write-Host "  installed $cmdDir\$f"
 }
 
+# Claude Code permissions — allow WebFetch (required by /find-emails).
+# Without this, /find-emails appears frozen: every WebFetch to a new domain
+# triggers a permission prompt that, if missed, returns silently and yields
+# zero results. Idempotent — skips if WebFetch is already allowed.
+$settingsFile = Join-Path $HOME ".claude\settings.local.json"
+$settingsDir = Split-Path $settingsFile -Parent
+if (-not (Test-Path $settingsDir)) { New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null }
+$existed = Test-Path $settingsFile
+$data = if ($existed) {
+    try { Get-Content -Path $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop }
+    catch { [PSCustomObject]@{} }
+} else { [PSCustomObject]@{} }
+if (-not $data.PSObject.Properties['permissions']) {
+    $data | Add-Member -NotePropertyName 'permissions' -NotePropertyValue ([PSCustomObject]@{ allow = @(); deny = @() })
+}
+if (-not $data.permissions.PSObject.Properties['allow']) {
+    $data.permissions | Add-Member -NotePropertyName 'allow' -NotePropertyValue @()
+}
+if (-not $data.permissions.PSObject.Properties['deny']) {
+    $data.permissions | Add-Member -NotePropertyName 'deny' -NotePropertyValue @()
+}
+$allow = @($data.permissions.allow)
+if ($allow -contains 'WebFetch') {
+    Write-Host "  kept     $settingsFile (WebFetch already allowed)"
+} else {
+    $data.permissions.allow = @($allow + 'WebFetch')
+    $json = $data | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($settingsFile, $json)
+    if ($existed) {
+        Write-Host "  patched  $settingsFile (added WebFetch to allow list)"
+    } else {
+        Write-Host "  created  $settingsFile (WebFetch allowed)"
+    }
+}
+
 # Data dir + send.ps1.
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
 Copy-Item -Path (Join-Path $repoDir "send.ps1") -Destination (Join-Path $dataDir "send.ps1") -Force

@@ -40,6 +40,36 @@ for f in find-emails.md email-all.md email-auto.md email-todo.md; do
   echo "  installed ~/.claude/commands/$f"
 done
 
+# --- Claude Code permissions (allow WebFetch — required by /find-emails) ---
+# Without this, /find-emails appears frozen: every WebFetch to a new domain
+# triggers a permission prompt that, if missed, returns silently and yields
+# zero results. Idempotent — skips if WebFetch is already allowed.
+SETTINGS_FILE="$HOME/.claude/settings.local.json"
+mkdir -p "$(dirname "$SETTINGS_FILE")"
+python3 - "$SETTINGS_FILE" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+existed = os.path.exists(path)
+try:
+    with open(path) as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+perms = data.setdefault("permissions", {})
+allow = perms.setdefault("allow", [])
+perms.setdefault("deny", [])
+if "WebFetch" in allow:
+    print("  kept     ~/.claude/settings.local.json (WebFetch already allowed)")
+else:
+    allow.append("WebFetch")
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    if existed:
+        print("  patched  ~/.claude/settings.local.json (added WebFetch to allow list)")
+    else:
+        print("  created  ~/.claude/settings.local.json (WebFetch allowed)")
+PY
+
 # --- Data dir + helper script ---
 mkdir -p "$DATA_DIR"
 cp "$REPO_DIR/send.sh" "$DATA_DIR/send.sh"
