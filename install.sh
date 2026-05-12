@@ -35,7 +35,7 @@ echo ""
 
 # --- Commands (always overwrite — these are code) ---
 mkdir -p "$CMD_DIR"
-for f in find-emails.md email-all.md email-todo.md; do
+for f in find-emails.md email-all.md email-auto.md email-todo.md; do
   cp "$REPO_DIR/commands/$f" "$CMD_DIR/$f"
   echo "  installed ~/.claude/commands/$f"
 done

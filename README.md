@@ -6,6 +6,7 @@ Three Claude Code slash commands for personalized email outreach. Sends route th
 |---|---|
 | `/find-emails <target description>` | WebSearch + WebFetch to find real personal email addresses for people matching your target. Appends to `~/email-outreach/prospects.json`. |
 | `/email-all [pitch override]` | Drafts a personalized email for each prospect with `status: "new"`, shows them all for approval, sends the approved ones via Mail.app (macOS) or Outlook (Windows). Caps at 5 sends/run, 60s gap, one per domain. |
+| `/email-auto [template]` | Mail-merge mode. Approve one template with `{{name}}`-style placeholders, then up to 5 qualifying prospects get personalized sends automatically — no per-email gate. Same throttle as `/email-all`. |
 | `/email-todo [args]` | Manage `~/email-outreach/TODO.md`. List, add, mark done, remove. |
 
 ## Requirements
@@ -38,7 +39,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Both installers:
-- Copy the three command files to `~/.claude/commands/`
+- Copy the four command files to `~/.claude/commands/`
 - Create `~/email-outreach/` with the OS-appropriate helper (`send.sh` on macOS, `send.ps1` on Windows) and empty data files
 - Prompt for your sending email and write it to `~/email-outreach/sender.txt`
 - Verify the local mail client (Mail.app or Outlook) has that account configured
@@ -96,6 +97,7 @@ Everything stays local. No data leaves your machine via this tool. Web searches 
 | `~/email-outreach/pitch.md` | Your pitch text, reused across runs |
 | `~/email-outreach/signature.md` | Your sign-off line |
 | `~/email-outreach/sender.txt` | The email address Mail.app (macOS) or Outlook (Windows) sends from |
+| `~/email-outreach/template.md` | Mail-merge template used by `/email-auto` (with `{{name}}`-style placeholders) |
 | `~/email-outreach/TODO.md` | Follow-up checklist managed by `/email-todo` |
 
 ## Customizing

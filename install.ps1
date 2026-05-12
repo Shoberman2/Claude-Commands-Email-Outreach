@@ -21,7 +21,7 @@ Write-Host ""
 
 # Commands — always overwrite (these are code, not user data).
 if (-not (Test-Path $cmdDir)) { New-Item -ItemType Directory -Path $cmdDir -Force | Out-Null }
-foreach ($f in "find-emails.md", "email-all.md", "email-todo.md") {
+foreach ($f in "find-emails.md", "email-all.md", "email-auto.md", "email-todo.md") {
     Copy-Item -Path (Join-Path $repoDir "commands\$f") -Destination (Join-Path $cmdDir $f) -Force
     Write-Host "  installed $cmdDir\$f"
 }
