@@ -21,6 +21,48 @@ Pitch override (optional): $ARGUMENTS
 
 4. Read `~/email-outreach/sender.txt` (single line: the email address the local mail client will send from). If missing or empty, stop and tell the user to write their sending address there. Surface this address to the user in the approval gate — it determines which inbox replies land in and which sender identity recipients see.
 
+## Batch & timing configuration
+
+Read `~/email-outreach/config.json`. If it doesn't exist, treat as `{ "batch_size": 5, "gap_seconds": 60 }` and create it.
+
+Show the user the eligible-prospect count and the saved defaults, then prompt for changes in one round-trip:
+
+```
+Found N eligible prospects after dedupe.
+
+Send settings (saved):
+  Batch size: <batch_size>   (max sends this run)
+  Gap:        <gap_seconds>s between sends
+  Start:      now
+
+Reply 'ok' to keep these, or specify changes — examples:
+  size 3
+  gap 120
+  start 9am
+  start 'tomorrow 10am' size 10 gap 90
+```
+
+Parse the reply:
+
+- `size N` — set `batch_size` to N. If N > 10, warn: "Above 10/run pushes personal Gmail's classifier toward spam. Still apply?" Require a second explicit `yes`.
+- `gap N` (seconds) or `gap Nm` (minutes) — set `gap_seconds`. If <30s, warn: "Faster than 30s between sends reads as automated. Still apply?" Require a second explicit `yes`.
+- `start <expr>` — parse as a future timestamp. Accept natural forms (`9am`, `tomorrow 10am`, `in 2 hours`) and ISO 8601. Resolve in the user's local timezone. If parsing is ambiguous or resolves to the past, re-ask. If `start` is omitted or `now`, send immediately.
+
+Persist the new `batch_size` and `gap_seconds` back to `config.json`. `start` is per-run and is NOT persisted.
+
+**If `start` is in the future**, ask one more question:
+
+```
+Deferring batch until <resolved local time>. How should I wait?
+  1. sleep   — Claude waits inside this session (keep it open until done)
+  2. background — hand off to macOS `at` (close this session whenever you want)
+```
+
+If the user picks `background` on macOS, verify `atq >/dev/null 2>&1` succeeds first. If it fails, tell the user:
+"macOS `atrun` isn't loaded. Enable once with `sudo launchctl load -F /System/Library/LaunchDaemons/com.apple.atrun.plist`, or pick `sleep` instead." Do not silently fall back.
+
+On Windows, the equivalent is `schtasks /create /sc ONCE`. Surface any errors verbatim.
+
 ## Drafting
 
 For each new prospect, draft an email that:
@@ -67,19 +109,44 @@ Do not send anything until the user explicitly approves. If they say "cancel", s
 
 Both helpers accept the same logical args (`<to>`, `<subject>`, `<body-file-path>`), both read the sender from `sender.txt`, and both exit non-zero on failure.
 
-For each approved draft:
+### Foreground send (start = now, OR sleep mode)
+
+If `start` is `now`, proceed immediately. If `start` is future + `sleep` mode chosen, run `sleep <seconds-until-target>` first, then proceed. Tell the user: "Waiting until <resolved time>. Keep this session open."
+
+Then, for each approved draft (up to `batch_size`):
 
 1. Write the body to a temp file as UTF-8. macOS/Linux: `mktemp /tmp/email-XXXXXX.txt`. Windows: a path under `$env:TEMP`, e.g., `Join-Path $env:TEMP "email-$(New-Guid).txt"`.
 2. Call the OS-appropriate helper with the recipient email, subject, and body-file path.
 3. If the helper exits non-zero, STOP the batch. Report which prospect failed and why. Do not continue.
 4. On success, update that prospect's entry in `prospects.json`: set `status` to `"sent"` and add `sent_at` (ISO 8601).
 5. Append a record to `~/email-outreach/sent.json` with `{name, email, subject, body, sent_at}`.
-6. Sleep 60 seconds between sends (`sleep 60` on Unix, `Start-Sleep -Seconds 60` on Windows). Human pacing, not script pacing — the single biggest signal classifiers use to distinguish you from a sequencer tool.
+6. Sleep `<gap_seconds>` between sends (`sleep <gap_seconds>` on Unix, `Start-Sleep -Seconds <gap_seconds>` on Windows). Human pacing, not script pacing — the single biggest signal classifiers use to distinguish you from a sequencer tool.
 7. Clean up the temp file.
+
+### Background send (start = future, `background` mode chosen)
+
+Generate a self-contained batch script and hand it off to the OS scheduler.
+
+1. Create a batch directory: `~/email-outreach/scheduled-batches/<YYYYMMDD-HHMMSS>/`.
+2. For each approved draft, write the body to `<batch-dir>/body-<index>.txt` as UTF-8.
+3. Write `<batch-dir>/send.sh` containing a bash script that:
+   - Iterates the approved prospects (each line has `email`, `subject`, `body-file`).
+   - For each: calls `~/email-outreach/send.sh "<email>" "<subject>" "<body-file>"`. On success, uses `python3` (always present on macOS) to update `~/email-outreach/prospects.json` (set `status: "sent"`, `sent_at: <ISO>`) and append a record to `~/email-outreach/sent.json`. On failure, appends to `<batch-dir>/errors.log` and exits non-zero.
+   - Sleeps `<gap_seconds>` between sends.
+   - Writes `<batch-dir>/status.log` lines like `2026-05-12T09:00:00Z SENT <email>`.
+4. `chmod +x <batch-dir>/send.sh`.
+5. Schedule with `at`: `echo "/bin/bash <batch-dir>/send.sh" | at -t <YYYYMMDDhhmm>`. Capture the job id from stderr.
+6. Tell the user: "Batch scheduled (at job #<id>). Status log: `<batch-dir>/status.log`. View pending jobs with `atq`. Cancel with `atrm <id>`. You can close this session."
+
+On Windows, do the analogous thing with `schtasks /create /tn email-outreach-<id> /tr "powershell -File <batch-dir>\send.ps1" /sc ONCE /st <hh:mm> /sd <date>`.
+
+If at any step the scheduler errors, surface the error verbatim and offer to fall back to `sleep` mode.
 
 ## Cap
 
-Hard cap: **5 sends per invocation.** Cold-email volume from a personal Gmail is the #1 signal that downgrades sender reputation — five/day stays under the threshold Gmail's classifier learned to flag. If more than 5 are approved, send the first 5 and tell the user "Sent 5, K remaining still marked 'new'. Run `/email-all` again tomorrow." Encourage spacing batches across days, not stacking them in the same hour.
+Per-run cap is **configurable via `batch_size` in `~/email-outreach/config.json`** (default 5). The Batch & timing configuration step shows the saved value and lets the user override it. If more prospects qualify than `batch_size`, send the first N and tell the user "Sent <N>, K remaining still marked 'new'. Run `/email-all` again later." Encourage spacing batches across days, not stacking them in the same hour.
+
+The 5-per-run / 60s-gap defaults exist for a reason: personal Gmail/Outlook deliverability degrades sharply with higher volume or faster pacing. The user can raise them — warnings fire at `size > 10` or `gap < 30s`.
 
 ## Report
 

@@ -1,6 +1,6 @@
 # Email Auto
 
-Bulk-send personalized outreach using a template with `{{placeholders}}`. Unlike `/email-all` (which gates every individual email), `/email-auto` gates only the **template** — once approved, all qualifying prospects get personalized sends without further confirmation. Same throttle as `/email-all`: 5 per invocation, 60s gap, one per domain.
+Bulk-send personalized outreach using a template with `{{placeholders}}`. Unlike `/email-all` (which gates every individual email), `/email-auto` gates only the **template** — once approved, all qualifying prospects get personalized sends without further confirmation. Throttle defaults to 5 sends per invocation with a 60s gap (configurable per-run via `~/email-outreach/config.json` — see Batch & timing). One send per domain regardless.
 
 ## Argument
 
@@ -53,6 +53,16 @@ If the template uses anything else (e.g., `{{custom_field}}`), refuse to proceed
 
 5. **Read `~/email-outreach/signature.md`** if it exists — appended to the body if the template doesn't already include a sign-off.
 
+## Batch & timing configuration
+
+Same flow as `/email-all`. Read `~/email-outreach/config.json` (defaults: `{ "batch_size": 5, "gap_seconds": 60 }`), surface the saved values plus the eligible-prospect count, and accept one round-trip of changes (`size N`, `gap N` or `Nm`, `start <expr>`). Persist `batch_size` and `gap_seconds`; `start` is per-run only.
+
+Warnings:
+- `size > 10` — require a second explicit `yes` (template mode removes per-email gating, so volume bites harder).
+- `gap < 30s` — require a second explicit `yes`.
+
+If `start` is in the future, ask whether to wait via `sleep` (Claude stays open) or `background` (hand off to macOS `at` / Windows Task Scheduler — verify `atq` works first on macOS).
+
 ## Approval gate (one decision, covers the whole batch)
 
 Show the user, in this order:
@@ -78,7 +88,11 @@ If the user says anything other than an explicit yes (`yes`, `y`, `send`, `appro
 - **Windows** (`win32`) → use `$HOME\email-outreach\send.ps1` (invoke via `powershell -ExecutionPolicy Bypass -File`)
 - **Linux** → stop, this command is macOS- and Windows-only.
 
-For each prospect in the approved batch (up to 5):
+### Foreground send (start = now, OR sleep mode)
+
+If `start` is `now`, proceed immediately. If `start` is future + `sleep` mode chosen, run `sleep <seconds-until-target>` first, then proceed. Tell the user: "Waiting until <resolved time>. Keep this session open."
+
+For each prospect in the approved batch (up to `batch_size`):
 
 1. Render the template using that prospect's fields. Subject and body separately.
 2. If the body doesn't include a sign-off and `signature.md` exists, append `\n\n<signature>` to the body.
@@ -86,12 +100,16 @@ For each prospect in the approved batch (up to 5):
 4. Call the OS-appropriate helper with `<email> <rendered subject> <temp-file>`.
 5. If the helper exits non-zero, STOP the batch. Report which prospect failed and why. The remaining prospects stay `status: "new"`.
 6. On success, update that prospect's entry: `status: "sent"`, `sent_at: <ISO 8601>`. Append a record to `~/email-outreach/sent.json` with `{name, email, subject, body, sent_at, template_used: "auto"}`.
-7. Sleep 60 seconds (`sleep 60` / `Start-Sleep -Seconds 60`).
+7. Sleep `<gap_seconds>` (`sleep <gap_seconds>` / `Start-Sleep -Seconds <gap_seconds>`).
 8. Clean up the temp file.
+
+### Background send (start = future, `background` mode chosen)
+
+Same mechanism as `/email-all`: generate `~/email-outreach/scheduled-batches/<id>/send.sh` with the rendered subjects, body files, and per-prospect calls to the helper. Use `python3` inline to update `prospects.json` and `sent.json` on success (append `template_used: "auto"`). Schedule via `at -t <YYYYMMDDhhmm>` on macOS or `schtasks /create /sc ONCE` on Windows. Verify `atq` works before scheduling on macOS; if not, tell the user to enable `atrun` or pick `sleep`. Report the job id and status-log path.
 
 ## Cap
 
-Hard cap **5 sends per invocation.** This is non-negotiable — the auto-send mode removes the per-email gate, so the volume cap and pacing carry more weight. If more than 5 prospects qualify after dedupe + render check, send the first 5 and tell the user: "Sent 5, K remaining qualifying still marked 'new'. Run `/email-auto` again tomorrow."
+Per-run cap is **configurable via `batch_size` in `~/email-outreach/config.json`** (default 5). The auto-send mode removes the per-email gate, so volume cap and pacing carry more weight than in `/email-all` — warnings fire at `size > 10` and `gap < 30s` and require a second explicit `yes`. If more prospects qualify than `batch_size`, send the first N and tell the user: "Sent <N>, K remaining qualifying still marked 'new'. Run `/email-auto` again later."
 
 ## Report
 
@@ -118,4 +136,4 @@ After a successful send (N >= 1), ask once: "Want to add follow-up TODOs for any
 - Never auto-resend. Already-`sent` prospects stay out unless the user explicitly resets their status.
 - If the helper script (`send.sh` on macOS, `send.ps1` on Windows) is missing or unrunnable, stop and tell the user. Don't inline AppleScript or COM code.
 - If Mail.app or Outlook is not configured with the sender account, the helper will fail. Surface the error verbatim.
-- The cap stays at 5 even when the user pushes back. If they want higher volume, point them at dedicated tools (Instantly, Smartlead) — this command is for low-volume, high-care templated outreach.
+- Default cap is 5 — overridable per-run, but warn at `size > 10` and require a second explicit `yes`. If the user wants real high-volume cold email, point them at dedicated tools (Instantly, Smartlead) — this command is for low-volume, high-care templated outreach.
