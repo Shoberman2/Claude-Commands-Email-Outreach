@@ -4,10 +4,24 @@ Three Claude Code slash commands for personalized email outreach. Sends route th
 
 | Command | What it does |
 |---|---|
-| `/find-emails <target description>` | WebSearch + WebFetch to find real personal email addresses for people matching your target. Appends to `~/email-outreach/prospects.json`. |
-| `/email-all [pitch override]` | Drafts a personalized email for each prospect with `status: "new"`, shows them all for approval, sends the approved ones via Mail.app (macOS) or Outlook (Windows). Default: 5 sends/run, 60s gap, one per domain — batch size, gap, and start time all configurable per-run. |
-| `/email-auto [template]` | Mail-merge mode. Approve one template with `{{name}}`-style placeholders, then qualifying prospects get personalized sends automatically — no per-email gate. Same configurable throttle as `/email-all`. |
+| `/find-emails <target description>` | **Front door of outreach.** On first run, asks your goal and saves it to `~/email-outreach/pitch.md`. Then WebSearch + WebFetch to find real personal emails for people matching your target. Appends to `~/email-outreach/prospects.json`. |
+| `/email-all [pitch override]` | Shows a dropdown picker of eligible prospects (up to 4). You check the ones to send. Claude auto-drafts a unique email per recipient using the saved pitch + their `why_relevant`, then auto-sends with a 60s gap via Mail.app (macOS) or Outlook (Windows). One prompt total. |
+| `/email-auto [template]` | Mail-merge mode. Approve one template with `{{name}}`-style placeholders, then qualifying prospects get personalized sends automatically — no per-email gate. Default 5/run, 60s gap, configurable via `config.json`. |
 | `/email-todo [args]` | Manage `~/email-outreach/TODO.md`. List, add, mark done, remove. |
+
+## `/email-all` vs `/email-auto`
+
+| | `/email-all` | `/email-auto` |
+|---|---|---|
+| **What it sends** | Unique, hand-drafted email per prospect (Claude writes each one fresh from the pitch + `why_relevant`) | Same template rendered with `{{placeholders}}` for each prospect (mail-merge) |
+| **Approval style** | Pick recipients from a dropdown — selection IS approval | One approval on the template; covers every send in the batch |
+| **Recipient selection** | You pick which prospects (up to 4 in the dropdown) | Sends to everyone in the deduped eligible set |
+| **Per-run volume** | Up to 4 (AskUserQuestion limit) | Default 5, configurable, warns above 10 |
+| **Token cost** | High — N bespoke drafts per run | Low — one template rendered N times, no LLM drafting per email |
+| **Quality / personalization** | Higher; each email reads custom | Lower; varies only by what you put in `{{placeholders}}` |
+| **Best for** | Small batches where the relationship matters (founders, creators, partnerships) | Larger batches with a proven template (beta invites, launch announcements, structured asks) |
+
+**Rule of thumb:** if you'd write each email differently anyway, use `/email-all`. If you'd copy-paste the same message and change a few words, use `/email-auto`.
 
 ## Requirements
 
@@ -52,8 +66,13 @@ Re-running the installer is safe — your prospects, sent log, and TODO list are
 You type /email-all in Claude Code
         |
         v
-Claude reads ~/email-outreach/prospects.json, drafts emails, shows them
-        |   you approve which ones to send
+Claude reads ~/email-outreach/prospects.json, dedupes by domain,
+shows up to 4 recipients in a dropdown picker
+        |   you check the ones to send
+        v
+Claude drafts a unique email per selected recipient using the saved
+pitch + their why_relevant, shows each draft, then begins sending
+        |
         v
 Claude picks the helper based on your OS:
   macOS    -> ~/email-outreach/send.sh   (bash + osascript + AppleScript)
@@ -69,7 +88,7 @@ The mail client routes through the account matching sender.txt,
 using its existing SMTP/OAuth connection.
         |
         v
-Recipient's inbox
+Recipient's inbox (next send fires after a 60s gap)
 ```
 
 **Claude never sees your email password.** Authentication lives entirely inside Mail.app or Outlook. The tool just hands the mail client a pre-written message and asks it to send.
@@ -78,13 +97,14 @@ Recipient's inbox
 
 Cold email at scale damages sender reputation. The defaults are deliberately conservative:
 
-- **5 sends max per invocation** (configurable — warning above 10)
+- **`/email-all`: up to 4 sends per invocation** (dropdown picker limit)
+- **`/email-auto`: 5 sends per invocation by default** (configurable in `config.json` — warning above 10)
 - **60 seconds between sends** (configurable — warning below 30s; human pacing, not script pacing)
 - **One email per recipient domain per run** (avoids the "list import" pattern that triggers spam classifiers; not configurable)
 
 If you ignore these defaults and blast hundreds of cold emails, you will burn the sending account's deliverability. That affects every email from that account — including legitimate replies to people you know — for weeks afterward.
 
-If you want sustained outreach volume, use a dedicated cold-email service (Instantly, Smartlead, etc.) with a separate sending domain. This tool is for low-volume, high-care outreach: 5/day from your real account.
+If you want sustained outreach volume, use a dedicated cold-email service (Instantly, Smartlead, etc.) with a separate sending domain. This tool is for low-volume, high-care outreach: a handful per day from your real account.
 
 ## Where your data lives
 
@@ -100,49 +120,31 @@ Everything stays local. No data leaves your machine via this tool. Web searches 
 | `~/email-outreach/template.md` | Mail-merge template used by `/email-auto` (with `{{name}}`-style placeholders) |
 | `~/email-outreach/TODO.md` | Follow-up checklist managed by `/email-todo` |
 | `~/email-outreach/config.json` | Saved `batch_size` and `gap_seconds` defaults |
-| `~/email-outreach/scheduled-batches/` | Generated scripts + status logs for `background` mode sends |
 
 ## Customizing
 
-### Batch size, gap, and send time
+The commands read their defaults silently — no config prompt at runtime. To change defaults, edit the files directly.
 
-`/email-all` and `/email-auto` each open with a one-line prompt showing your saved defaults plus the eligible-prospect count:
+### `~/email-outreach/config.json`
 
-```
-Found 7 eligible prospects after dedupe.
-
-Send settings (saved):
-  Batch size: 5    (max sends this run)
-  Gap:        60s  between sends
-  Start:      now
-
-Reply 'ok' to keep these, or specify changes — examples:
-  size 3
-  gap 120
-  start 9am
-  start 'tomorrow 10am' size 10 gap 90
+```json
+{ "batch_size": 5, "gap_seconds": 60 }
 ```
 
-- **`size N`** — max sends this run. Warning fires at `> 10` (personal Gmail's classifier territory).
-- **`gap N`** seconds, or `Nm` minutes — pause between sends. Warning fires below 30s.
-- **`start <expr>`** — defer the batch until a future time. Accepts natural forms (`9am`, `tomorrow 10am`, `in 2 hours`) and ISO 8601.
+- **`batch_size`** — max sends per `/email-auto` invocation. `/email-all` is independently capped at 4 by its dropdown picker.
+- **`gap_seconds`** — pause between sends. Going below 30s reads as automated to spam classifiers.
 
-When `start` is in the future, the command asks how to wait:
+### `~/email-outreach/pitch.md`
 
-1. **`sleep`** — Claude waits inside the session. Keep the terminal open.
-2. **`background`** — hand off to macOS `at` (or Windows Task Scheduler). You can close the session; the batch runs on its own. On macOS, `atrun` must be loaded:
-   ```bash
-   sudo launchctl load -F /System/Library/LaunchDaemons/com.apple.atrun.plist
-   ```
-   Scheduled batches live under `~/email-outreach/scheduled-batches/<id>/` with a `status.log`. Cancel with `atrm <job-id>` (shown when the batch is scheduled).
-
-`batch_size` and `gap_seconds` persist to `~/email-outreach/config.json`. `start` is per-run only.
+Your outreach goal in 1-2 sentences. `/find-emails` writes this on first run; `/email-all` reads it for every draft. Edit the file to change your goal — no prompts.
 
 ### Other knobs
 
 - **Sender** — edit `~/email-outreach/sender.txt` to change which account sends.
+- **Signature** — edit `~/email-outreach/signature.md` to change your sign-off.
+- **Template** (`/email-auto`) — edit `~/email-outreach/template.md` directly, or pass new content as `$ARGUMENTS`.
 - **Prospect schema** — `prospects.json` is plain JSON. Add fields if you want; the commands only read the ones they reference.
-- **Deliverability defaults** — the conservative 5/60s defaults exist for a reason (see the Cold-email warning above). Raise them at your own risk, especially on a personal Gmail account.
+- **Deliverability defaults** — the conservative 4-5/60s defaults exist for a reason (see the Cold-email warning above). Raise them at your own risk, especially on a personal Gmail account.
 
 ## License
 

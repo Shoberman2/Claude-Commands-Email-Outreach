@@ -43,7 +43,7 @@ If the template uses anything else (e.g., `{{custom_field}}`), refuse to proceed
 
 ## Setup
 
-1. **Read prospects.** `~/email-outreach/prospects.json`, filter to `status == "new"`.
+1. **Read prospects.** `~/email-outreach/prospects.json`, filter to `status == "new"`. If none: **"No new prospects. Run `/find-emails <target>` first — it's the front door of outreach: captures your goal and researches real recipients."** Stop.
 
 2. **Dedupe by domain** (mandatory, same rule as `/email-all`): at most one prospect per recipient email domain. Domains `gmail.com`, `outlook.com`, `icloud.com`, `proton.me`, `yahoo.com` count as separate (personal mailboxes). All other domains dedupe — defer the extras with `status: "new"` for the next run.
 
